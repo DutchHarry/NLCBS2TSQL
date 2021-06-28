@@ -1,0 +1,89 @@
+NLCBS2TSQL
+
+Staging CSB data to SQL server
+
+
+1. 
+Install the R package needed for convenient download from the CBS odata-API
+
+Get the data in directory 'workingdir\CBS' with the id as subdir name
+in R: 
+setwd("D://workingdir//CBS")
+
+# The 'orogonal' package has problems with the non-CBS catalogs (e.g. 'Politie', 'JM', 'IV3')
+# So get the development package
+# first install devtools, or more recent remotes
+install.packages("remotes");
+remotes::install_github("edwindj/cbsodataR",force=TRUE);
+# above steps only once; after that only load the library as usual
+library(cbsodataR);
+
+
+download CSV with all datasets, and open in Excel
+write.csv(cbs_get_datasets(catalog=NULL),"datasets.csv");
+
+Add column 'cellscount' with recordcount times columncount, and sort on this column
+Add column with the downloadscript for R, e.g. cbs_download_table(id="37450",catalog="CBS");
+
+There is a modification date in there so you can check if you need a new download since last time.
+
+You probably need to partition the bigger ones, e.g. for a year irrespective of monthly, quarterly or yearly data
+cbs_download_table(
+id="84060NED",
+catalog="CBS",
+Perioden=c("2017MM01","2017MM02","2017MM03","2017MM04","2017MM05","2017MM06","2017MM07","2017MM08","2017MM09","2017MM10","2017MM11","2017MM12","2017KW01","2017KW02","2017KW03","2017KW04","2017JJ00")
+)
+
+
+
+Also on the bigger ones you may not need the full table, as most likely data in the further past isn't changing anymore.
+But I didn't 'automate' for that yet.
+
+Note: 
+Be aware that CBS server goes offline for a few minutes somewhere betweeen 00:01 and 02:00.
+Only a few minutes, but sufficient for a download in progress to break.
+
+
+2.
+script: '20210624 get CBS filenames etc.sql'
+Stage in SQL-Server
+get all subdirs (ids) from directory CBS and loop through them
+subloop: get all filenames in the subdirs and import
+naming scheme [tblCBS_CBSID_CSVNAME]
+
+take 1st line in a one column table, create a table from that (all varchar NULL)
+BULK INSERT with FORMAT = 'CSV' (since SQL 2016 IIRC)
+
+This is automated with a script that loops through all subdirs below workingdir\CBS
+
+Ignore files with size lesss than or equal to 4. (That's CategoryGroups.csv with only 2 double quotes and a CRLF)
+
+3.
+script: '20210624 connect cbs tables in views Vw_CBSID.sql'
+Join up the data table with the column definition tables
+And add CategroyGroups if needed
+
+This is automated in a script that loops through all data tables
+Output of the script is 1 view Vw_CBSID per CBSID
+View contains all there is, you might want to comment out stuff you consider less relevant.
+Values are still in varchar format, though stripped from spaces and the '.' for nothing, so should convert correctly to numbers.
+
+Explanation:
+basically there is a 'data' table with a few 'dimension' tables, and some of these dimensions may have an additional hierarchy defined in 'CategoryGroups'
+You add the additional hierarchy with join + selfjoin on categorygroups.
+I didn't find a dataset yet that needed more than 3 joins of Categorygroups, so included only 3
+ALL columns are included
+first all columns from data table
+Then all columns from dimension tables
+Finally 3 times all columns from categorygroups for each dimension with a hierarchy
+Dataset is 'untyped', so columns are stripped from ' .' (to get rid of only a dot), and then trimmed.
+But not converted to a numeric format yet.
+The decimal sign is '.' (therfore the replace with ' .' to avoid stripping it)
+
+
+4.
+Possible ToDos
+a. Do something with modification date of data too (from datasets table) of from column 'Modified' in TableInfos
+b. some further cleansing for non-useful or duplicated columns
+c. data type conversions
+But experience learns that any assumptions used for such work easily break somewhere in future.
